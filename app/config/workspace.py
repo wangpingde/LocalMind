@@ -108,7 +108,7 @@ default:
   embedding_model: "text-embedding-3-small"
   temperature: 0.7
   max_tokens: 16384
-  
+
 local_ollama:
   type: ollama
   base_url: "http://localhost:11434"
