@@ -61,6 +61,12 @@ pip install -e ".[dev]"
 python main.py
 ```
 
+如果系统只有 `python3` 命令，请使用：
+
+```bash
+python3 main.py
+```
+
 ### 数据目录
 
 | 平台 | 默认路径 |
@@ -75,6 +81,23 @@ python main.py
 set LOCALMIND_DATA_DIR=D:\localmind-dev-data
 python main.py
 ```
+
+### Windows 打包 exe
+
+请在 Windows 环境打包；PyInstaller 不支持在 Linux/macOS 上直接交叉生成 Windows exe。
+
+```powershell
+py -3.11 -m pip install -e ".[build]"
+py -3.11 -m PyInstaller --clean --noconfirm LocalMind.spec
+```
+
+打包结果位于：
+
+```text
+dist\LocalMind\LocalMind.exe
+```
+
+不要直接执行 `pyinstaller main.py`：该命令不会自动包含内置 Skill、Skill 市场资源以及部分动态导入模块。
 
 ---
 

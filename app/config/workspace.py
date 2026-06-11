@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from loguru import logger
 
+from app.config.runtime_paths import app_resource_path
 from app.core.skills.skill_layout import ensure_skill_layout
 from app.core.skills.skill_package import load_skill_package
 from app.core.skills.skill_parser import is_skill_directory
@@ -24,8 +26,10 @@ def get_default_workspace() -> Path:
 
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
+    elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
 
     return (base / SERVICE_NAME).resolve()
 
@@ -152,7 +156,7 @@ deny_paths:
 
     def _ensure_builtin_skills(self) -> None:
         """将内置 Skill 复制到工作区（若不存在或 bundled 资源更完整）."""
-        bundled = Path(__file__).resolve().parent.parent / "resources" / "default_skills"
+        bundled = app_resource_path("default_skills")
         if not bundled.exists():
             return
         installed = self.skills_dir / "installed"

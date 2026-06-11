@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.config.runtime_paths import app_resource_path
 from app.core.skills.skill_installer import SkillInstallError
 from app.core.skills.skill_package import load_skill_package
 from app.core.skills.skill_parser import is_skill_directory
@@ -17,7 +18,7 @@ from app.services import get_services
 
 router = APIRouter(tags=["skills"])
 
-_MARKET_ROOT = Path(__file__).resolve().parents[2] / "resources" / "skill_market"
+_MARKET_ROOT = app_resource_path("skill_market")
 
 
 def _package_preview(package_dir: Path) -> dict:
