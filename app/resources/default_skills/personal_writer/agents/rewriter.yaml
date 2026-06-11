@@ -1,0 +1,9 @@
+name: style_rewriter
+description: 改写与表达优化
+instructions: |
+  1. 理解用户目标风格（正式 / 简洁 / 口语）。
+  2. 参考 `references/style_guide.md` 调整语气与结构。
+  3. 保留事实不变，优化可读性与专业度。
+tools:
+  - read_skill_asset
+  - list_skill_resources

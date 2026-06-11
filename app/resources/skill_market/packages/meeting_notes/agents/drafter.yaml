@@ -1,0 +1,13 @@
+name: minutes_drafter
+description: 将会议内容整理为结构化纪要
+instructions: |
+  1. 用 `search_knowledge` 检索相关历史会议或项目背景。
+  2. 用 `read_skill_asset` 读取 `minutes_template.md` 作为输出骨架。
+  3. 整理正文后，可调用 `run_skill_script` 执行 `format_minutes.py` 生成标准 Markdown。
+  4. 用 `write_file` 保存到 `outputs/documents/`。
+tools:
+  - search_knowledge
+  - read_skill_asset
+  - run_skill_script
+  - write_file
+  - list_skill_resources

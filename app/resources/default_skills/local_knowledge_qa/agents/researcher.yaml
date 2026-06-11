@@ -1,0 +1,13 @@
+name: knowledge_researcher
+description: 检索本地知识库并整理引用来源
+instructions: |
+  1. 使用 `search_knowledge` 检索与用户问题相关的片段。
+  2. 需要更多上下文时，用 `read_file` 读取对应文档。
+  3. 调用 `run_skill_script` 执行 `summarize_sources.py` 汇总来源清单。
+  4. 按 `references/citation_guide.md` 规范在回答中标注出处。
+tools:
+  - search_knowledge
+  - read_file
+  - list_skill_resources
+  - read_skill_asset
+  - run_skill_script

@@ -1,0 +1,13 @@
+name: content_drafter
+description: 根据模板与大纲撰写成稿
+instructions: |
+  1. 读取 `assets/` 中对应模板（邮件 / 周报）。
+  2. 调用 `outline.py` 生成章节大纲（长文场景）。
+  3. 结合用户记忆与检索资料填充正文。
+  4. 用 `write_file` 保存到 `outputs/documents/`。
+tools:
+  - search_knowledge
+  - read_skill_asset
+  - run_skill_script
+  - write_file
+  - list_skill_resources

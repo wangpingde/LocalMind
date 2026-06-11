@@ -1,0 +1,11 @@
+.idea
+.venv/
+.dev-data/
+*.egg-info/
+__pycache__/
+*.pyc
+localmind.db
+secrets.enc
+localmind.egg-info
+.pytest_cache/
+

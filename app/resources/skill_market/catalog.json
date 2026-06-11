@@ -1,0 +1,23 @@
+{
+  "version": "0.3",
+  "skills": [
+    {
+      "id": "file_organizer",
+      "name": "文件整理助手",
+      "version": "1.0.0",
+      "author": "LocalMind",
+      "description": "擅长整理 outputs 与 knowledge/inbox 目录，支持按类型/日期归档、批量重命名与合并文本。",
+      "tags": ["文件", "批处理", "整理"],
+      "package_dir": "file_organizer"
+    },
+    {
+      "id": "meeting_notes",
+      "name": "会议纪要助手",
+      "version": "1.0.0",
+      "author": "LocalMind",
+      "description": "将会议记录整理为结构化纪要并写入 outputs/documents。",
+      "tags": ["写作", "文档"],
+      "package_dir": "meeting_notes"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+name: preview_planner
+description: 整理前预览与计划确认
+instructions: |
+  1. 使用 `list_files` 扫描目标目录。
+  2. 调用 `run_skill_script` 执行 `preview.py` 生成统计摘要。
+  3. 向用户展示计划，确认后再执行 `batch_process_files`（先 dry_run）。
+tools:
+  - list_files
+  - list_skill_resources
+  - run_skill_script
+  - batch_process_files

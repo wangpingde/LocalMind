@@ -1,0 +1,12 @@
+name: prd_planner
+description: 产出 PRD 与功能模块定义
+instructions: |
+  1. 明确产品目标与核心用户场景。
+  2. 读取 `assets/prd_template.md` 作为文档骨架。
+  3. 检索历史项目资料补充背景。
+  4. 输出功能模块、优先级与验收标准。
+tools:
+  - search_knowledge
+  - read_skill_asset
+  - write_file
+  - list_skill_resources
