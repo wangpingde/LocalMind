@@ -9,6 +9,11 @@ from typing import Any
 from openai import OpenAI
 
 from app.core.llm.base import LLMProvider
+from app.core.llm.vision_messages import (
+    VISION_DESCRIBE_PROMPT,
+    build_vision_user_message,
+    encode_image_base64,
+)
 from app.core.llm.reasoning import (
     ChatResult,
     StreamPart,
@@ -27,11 +32,15 @@ class OpenAICompatibleProvider(LLMProvider):
         api_key: str,
         chat_model: str,
         embedding_model: str,
+        vision_model: str = "",
+        supports_vision: bool | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> None:
         self.chat_model = chat_model
         self.embedding_model = embedding_model
+        self.vision_model = vision_model.strip() or chat_model
+        self._supports_vision = supports_vision
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.client = OpenAI(base_url=base_url, api_key=api_key or "sk-local")
@@ -46,8 +55,9 @@ class OpenAICompatibleProvider(LLMProvider):
             if tools:
                 return self._stream_chat_with_tools(messages, tools)
             return self._stream_chat(messages)
+        model = self._model_for_messages(messages)
         kwargs: dict = {
-            "model": self.chat_model,
+            "model": model,
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -68,7 +78,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self, messages: list[dict], tools: list[dict]
     ) -> Generator[StreamPart, None, None]:
         stream = self.client.chat.completions.create(
-            model=self.chat_model,
+            model=self._model_for_messages(messages),
             messages=messages,  # type: ignore[arg-type]
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -119,11 +129,20 @@ class OpenAICompatibleProvider(LLMProvider):
             tool_calls=_parse_accumulated_tool_calls(tool_acc),
         )
 
+    def _model_for_messages(self, messages: list[dict]) -> str:
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        return self.vision_model
+        return self.chat_model
+
     def _stream_chat(
-        self, messages: list[dict[str, str]]
+        self, messages: list[dict]
     ) -> Generator[StreamPart, None, None]:
         stream = self.client.chat.completions.create(
-            model=self.chat_model,
+            model=self._model_for_messages(messages),
             messages=messages,  # type: ignore[arg-type]
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -140,6 +159,52 @@ class OpenAICompatibleProvider(LLMProvider):
             if content:
                 yield StreamPart(kind="content", text=content)
         yield StreamPart(kind="turn_end")
+
+    def supports_vision(self) -> bool:
+        if self._supports_vision is False:
+            return False
+        if self._supports_vision is True:
+            return True
+        if self.vision_model.strip():
+            return True
+        name = (self.chat_model or "").lower()
+        markers = (
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-4-turbo",
+            "gpt-4v",
+            "vision",
+            "vl",
+            "gemini",
+            "claude-3",
+            "claude-4",
+            "qwen-vl",
+            "qwen2-vl",
+            "qwen3-vl",
+            "glm-4v",
+            "deepseek-vl",
+            "doubao-vision",
+            "yi-vision",
+        )
+        return any(m in name for m in markers)
+
+    def vision_explicitly_disabled(self) -> bool:
+        return self._supports_vision is False
+
+    def describe_image(self, image_bytes: bytes, mime: str, context: str = "") -> str:
+        _, data_url = encode_image_base64(image_bytes, mime=mime)
+        prompt = VISION_DESCRIBE_PROMPT.format(context=context or "（无）")
+        messages = [build_vision_user_message(prompt, [data_url])]
+        model = self.vision_model or self.chat_model
+        kwargs: dict = {
+            "model": model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        resp = self.client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+        message = resp.choices[0].message
+        return (message.content or "").strip()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:

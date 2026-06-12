@@ -89,6 +89,10 @@ shell_tool_enabled: false
 tools_enabled: true
 agent_max_steps: 8
 auto_confirm_file_write: false
+multimodal_index_enabled: true
+max_images_per_document: 30
+video_max_frames: 12
+video_frame_interval_sec: 30
 """,
                 encoding="utf-8",
             )
@@ -102,6 +106,7 @@ default:
   base_url: "http://47.236.4.250:9782/openai-api/v1"
   chat_model: "gpt-4o-mini"
   embedding_model: "text-embedding-3-small"
+  vision_model: ""
   temperature: 0.7
   max_tokens: 16384
   

@@ -168,7 +168,10 @@ class MemoryManager:
         return len(bigrams_a & bigrams_b) / min(len(bigrams_a), len(bigrams_b))
 
     def delete_memory(self, memory_id: str) -> bool:
-        return self.sqlite.delete_memory(memory_id)
+        if not self.sqlite.delete_memory(memory_id):
+            return False
+        self.vector_store.delete_memory_vector(memory_id)
+        return True
 
     def list_all(
         self, memory_type: str | None = None, keyword: str | None = None

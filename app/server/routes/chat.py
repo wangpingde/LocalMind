@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -50,11 +50,30 @@ def chat(req: ChatRequest):
 
 
 @router.get("/conversations")
-def list_conversations():
+def list_conversations(
+    scope: str = Query(
+        "today",
+        description="时间范围: today | week | month | all",
+    ),
+    keyword: str | None = Query(None, description="按标题关键词过滤"),
+    today: bool | None = Query(
+        None,
+        description="兼容旧参数；为 true 时等同 scope=today",
+    ),
+):
+    if today is True:
+        scope = "today"
+    elif today is False and scope == "today":
+        scope = "all"
+
+    allowed = {"today", "week", "month", "all"}
+    if scope not in allowed:
+        scope = "today"
+
     svc = get_services()
     return [
         {"id": c.id, "title": c.title, "created_at": c.created_at, "updated_at": c.updated_at}
-        for c in svc.sqlite.list_conversations()
+        for c in svc.sqlite.list_conversations(scope=scope, keyword=keyword)
     ]
 
 
@@ -71,3 +90,23 @@ def get_messages(conv_id: str):
         }
         for m in svc.sqlite.get_messages(conv_id)
     ]
+
+
+@router.delete("/conversations/{conv_id}")
+def delete_conversation(conv_id: str):
+    svc = get_services()
+    if not svc.sqlite.get_conversation(conv_id):
+        raise HTTPException(404, "会话不存在")
+
+    run_ids = svc.sqlite.list_agent_run_ids(conv_id)
+    if not svc.sqlite.delete_conversation(conv_id):
+        raise HTTPException(404, "会话不存在")
+
+    audit_removed = svc.audit.delete_logs_for_conversation(
+        conv_id, agent_run_ids=run_ids
+    )
+    svc.audit.log(
+        "conversation_deleted",
+        {"conversation_id": conv_id, "audit_removed": audit_removed},
+    )
+    return {"status": "ok", "conversation_id": conv_id, "audit_removed": audit_removed}

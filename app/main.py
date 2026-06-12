@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import socket
 import sys
 import threading
@@ -20,31 +21,11 @@ STARTUP_TIMEOUT = 45.0
 def _setup_logging(workspace: Workspace) -> None:
     log_file = workspace.logs_dir / "app.log"
     logger.remove()
-    # 打包为「无控制台」(console=False) 时 sys.stderr 可能为 None，直接 add 会抛异常
+    # 打包为无控制台(windowed)程序时 sys.stderr / sys.stdout 为 None，
+    # 直接 logger.add(None) 会抛异常导致启动即崩溃，这里做保护。
     if sys.stderr is not None:
         logger.add(sys.stderr, level="INFO")
     logger.add(str(log_file), rotation="10 MB", retention="7 days", level="DEBUG")
-
-
-def _install_excepthook() -> None:
-    """把未捕获异常写入日志，避免无控制台打包时崩溃「静默无痕」。"""
-
-    def _hook(exc_type, exc_value, exc_tb):
-        logger.opt(exception=(exc_type, exc_value, exc_tb)).critical("未捕获异常导致程序终止")
-
-    sys.excepthook = _hook
-
-    try:
-        import threading
-
-        def _thread_hook(args):
-            logger.opt(
-                exception=(args.exc_type, args.exc_value, args.exc_traceback)
-            ).critical("子线程未捕获异常: {}", args.thread.name)
-
-        threading.excepthook = _thread_hook
-    except Exception:
-        pass
 
 
 def _start_api_server(port: int) -> None:
@@ -54,7 +35,15 @@ def _start_api_server(port: int) -> None:
         from app.server.api import create_app
 
         app = create_app()
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        # log_config=None：避免 uvicorn 默认日志配置向 stdout/stderr 写入，
+        # 在无控制台(windowed)打包环境下 stdout/stderr 为 None 会报错。
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            log_config=None,
+        )
     except OSError as e:
         logger.warning("端口 {} 启动失败: {}", port, e)
     except Exception as e:
@@ -127,7 +116,6 @@ def main() -> None:
     workspace = Workspace()
     workspace.ensure()
     _setup_logging(workspace)
-    _install_excepthook()
 
     settings_port = DEFAULT_PORT
     try:
@@ -152,67 +140,18 @@ def main() -> None:
 
     logger.info("本地 API 服务已就绪，端口 {}", actual_port)
 
-    logger.info("正在创建 Qt 应用 ...")
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("LocalMind")
-    logger.info(
-        "Qt 平台插件: {}", qt_app.platformName() or "(未知)"
-    )
 
     from app.desktop.theme import apply_theme
 
     apply_theme(qt_app)
-    logger.info("主题已应用，正在构建主窗口 ...")
 
     window = MainWindow(api_port=actual_port)
-    logger.info("主窗口已构建，正在显示 ...")
     window.show()
-    _ensure_window_visible(window)
-    logger.info("主窗口已显示，进入事件循环")
     sys.exit(qt_app.exec())
 
 
-def _ensure_window_visible(window) -> None:
-    """确保窗口落在可见的屏幕区域内，并置顶激活。
-
-    解决「进程在运行、日志正常，但看不到界面」的常见原因：
-    窗口被放到了已断开的副屏 / 屏幕外坐标，或被其他窗口挡住、最小化。
-    """
-    try:
-        from PySide6.QtGui import QGuiApplication
-
-        screen = window.screen() or QGuiApplication.primaryScreen()
-        if screen is not None:
-            available = screen.availableGeometry()
-            frame = window.frameGeometry()
-            # 若窗口与任何可见屏幕都没有交集，则移动到主屏中央
-            on_screen = any(
-                s.availableGeometry().intersects(frame)
-                for s in QGuiApplication.screens()
-            )
-            if not on_screen:
-                logger.warning(
-                    "窗口位于屏幕可见区域之外 {}，已重置到主屏中央", frame
-                )
-                frame.moveCenter(available.center())
-                window.move(frame.topLeft())
-    except Exception as e:
-        logger.warning("窗口可见性校正失败: {}", e)
-
-    # 取消最小化、置顶并激活，避免窗口在其他窗口背后
-    try:
-        from PySide6.QtCore import Qt
-
-        window.setWindowState(
-            window.windowState() & ~Qt.WindowState.WindowMinimized
-            | Qt.WindowState.WindowActive
-        )
-        window.show()
-        window.raise_()
-        window.activateWindow()
-    except Exception as e:
-        logger.warning("窗口置顶激活失败: {}", e)
-
-
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

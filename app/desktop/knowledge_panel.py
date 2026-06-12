@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 
 from app.desktop.api_client import ApiClient
 
+from app.desktop.progress_utils import run_knowledge_task
+
 _UPLOAD_FILTER = (
     "文档 (*.txt *.md *.pdf *.docx *.csv *.xlsx *.pptx *.html *.htm *.json "
     "*.py *.java *.sql *.js *.ts *.yaml *.yml);;所有文件 (*.*)"
@@ -93,6 +95,14 @@ class KnowledgePanel(QWidget):
         btn_row.addWidget(open_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
+        self._action_buttons = [
+            upload_btn,
+            delete_btn,
+            refresh_btn,
+            reindex_btn,
+            clear_btn,
+            open_btn,
+        ]
 
         self._reload_upload_dirs()
         self.refresh()
@@ -151,7 +161,13 @@ class KnowledgePanel(QWidget):
                 self.table.setItem(i, 0, item)
                 self.table.setItem(i, 1, QTableWidgetItem(d.get("path", "")))
                 self.table.setItem(i, 2, QTableWidgetItem(d.get("status", "")))
-                self.table.setItem(i, 3, QTableWidgetItem(d.get("error_message") or ""))
+                err = d.get("error_message") or ""
+                err_item = QTableWidgetItem(err)
+                if err:
+                    err_item.setToolTip(
+                        err + ("\n（可能含图片/视频处理失败，请检查视觉模型配置）" if "media" in err.lower() or "vision" in err.lower() else "")
+                    )
+                self.table.setItem(i, 3, err_item)
         except Exception as e:
             self.stats_label.setText(f"加载失败: {e}")
 
@@ -162,6 +178,12 @@ class KnowledgePanel(QWidget):
         item = self.table.item(row, 0)
         return item.data(256) if item else None
 
+    def _set_busy(self, busy: bool) -> None:
+        for btn in self._action_buttons:
+            btn.setEnabled(not busy)
+        self.table.setEnabled(not busy)
+        self.folder_combo.setEnabled(not busy)
+
     def upload_documents(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "选择要上传的文档", "", _UPLOAD_FILTER
@@ -170,22 +192,44 @@ class KnowledgePanel(QWidget):
             return
 
         subdir = self._selected_subdir()
+        total = len(paths)
         saved_count = 0
         error_lines: list[str] = []
 
+        def work(report) -> dict:
+            merged_saved: list[dict] = []
+            merged_errors: list[dict] = []
+            for i, path in enumerate(paths, start=1):
+                name = path.replace("\\", "/").rsplit("/", 1)[-1]
+                report(i, total, f"正在上传并索引 ({i}/{total}): {name}")
+                result = self.client.upload_one(
+                    "/knowledge/upload",
+                    path,
+                    params={"subdir": subdir, "reindex": "true"},
+                )
+                merged_saved.extend(result.get("saved", []))
+                merged_errors.extend(result.get("errors", []))
+            return {"saved": merged_saved, "errors": merged_errors}
+
         try:
-            result = self.client.upload_many(
-                "/knowledge/upload",
-                paths,
-                params={"subdir": subdir, "reindex": "true"},
+            self._set_busy(True)
+            result = run_knowledge_task(
+                self,
+                self.client,
+                title="上传文档",
+                label="正在上传文档...",
+                work=work,
+                poll_server=True,
             )
-            saved_count = len(result.get("saved", []))
-            for err in result.get("errors", []):
+            saved_count = len((result or {}).get("saved", []))
+            for err in (result or {}).get("errors", []):
                 error_lines.append(
                     f"{err.get('filename', '')}: {err.get('message', '')}"
                 )
         except Exception as e:
             error_lines.append(str(e))
+        finally:
+            self._set_busy(False)
 
         self.refresh()
 
@@ -214,34 +258,80 @@ class KnowledgePanel(QWidget):
         reply = QMessageBox.question(
             self,
             "确认删除",
-            f"确定删除「{name}」？\n将同时删除磁盘文件与索引记录。",
+            f"确定删除「{name}」？\n将同时删除磁盘文件、切块索引与向量数据。",
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
         try:
-            self.client.delete(f"/knowledge/documents/{doc_id}")
+            self._set_busy(True)
+
+            def work(_report) -> dict:
+                return self.client.delete(
+                    f"/knowledge/documents/{doc_id}",
+                    timeout=600.0,
+                )
+
+            run_knowledge_task(
+                self,
+                self.client,
+                title="删除文档",
+                label=f"正在删除「{name}」...",
+                work=work,
+                poll_server=True,
+            )
             self.refresh()
             QMessageBox.information(self, "完成", f"已删除: {name}")
         except Exception as e:
             QMessageBox.warning(self, "删除失败", str(e))
+        finally:
+            self._set_busy(False)
 
     def reindex(self) -> None:
         try:
-            result = self.client.post("/knowledge/reindex", {})
-            QMessageBox.information(self, "完成", f"索引完成: {result.get('stats')}")
+            self._set_busy(True)
+
+            def work(_report) -> dict:
+                return self.client.post("/knowledge/reindex", {}, timeout=600.0)
+
+            result = run_knowledge_task(
+                self,
+                self.client,
+                title="重新索引",
+                label="正在重建知识库索引，大文档可能需要较长时间...",
+                work=work,
+                poll_server=True,
+            )
+            QMessageBox.information(self, "完成", f"索引完成: {(result or {}).get('stats')}")
             self.refresh()
         except Exception as e:
             QMessageBox.warning(self, "失败", str(e))
+        finally:
+            self._set_busy(False)
 
     def clear_index(self) -> None:
         reply = QMessageBox.question(self, "确认", "确定清空所有索引？原文件不会被删除。")
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                self.client.delete("/knowledge/index")
-                self.refresh()
-            except Exception as e:
-                QMessageBox.warning(self, "失败", str(e))
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._set_busy(True)
+
+            def work(_report) -> dict:
+                return self.client.delete("/knowledge/index", timeout=600.0)
+
+            run_knowledge_task(
+                self,
+                self.client,
+                title="清空索引",
+                label="正在清空索引与向量数据...",
+                work=work,
+                poll_server=True,
+            )
+            self.refresh()
+        except Exception as e:
+            QMessageBox.warning(self, "失败", str(e))
+        finally:
+            self._set_busy(False)
 
     def open_folder(self) -> None:
         try:

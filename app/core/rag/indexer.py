@@ -12,6 +12,12 @@ from loguru import logger
 from app.config.workspace import Workspace
 from app.core.llm.model_gateway import ModelGateway
 from app.core.rag.chunker import Chunker
+from app.core.rag.index_progress import begin as progress_begin
+from app.core.rag.index_progress import finish as progress_finish
+from app.core.rag.index_progress import step as progress_step
+from app.core.rag.media_extractor import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaExtractor
+from app.core.rag.media_store import MediaStore
+from app.core.rag.multimodal_processor import MultimodalProcessor
 from app.core.rag.parser import DocParser
 from app.security.audit_logger import AuditLogger
 from app.storage.lancedb_store import LanceDBStore
@@ -36,28 +42,42 @@ class DocumentIndexer:
         self.chunker = Chunker()
         self._lock = threading.Lock()
 
-    def index_directory(self, sub_path: str | None = None) -> dict:
+    def index_directory(self, sub_path: str | None = None, *, force: bool = False) -> dict:
         knowledge = self.workspace.knowledge_dir
         target = knowledge / sub_path if sub_path else knowledge
         stats = {"indexed": 0, "failed": 0, "skipped": 0, "removed": 0}
 
-        for file_path in target.rglob("*"):
-            if not file_path.is_file():
-                continue
-            if file_path.suffix.lower() not in DocParser.SUPPORTED:
-                continue
-            try:
-                result = self.index_file(file_path)
-                if result == "indexed":
-                    stats["indexed"] += 1
-                elif result == "skipped":
-                    stats["skipped"] += 1
-            except Exception as e:
-                stats["failed"] += 1
-                logger.error("索引失败 {}: {}", file_path, e)
+        progress_begin("reindex", message="正在扫描知识库文件...")
+        try:
+            files = [
+                file_path
+                for file_path in target.rglob("*")
+                if file_path.is_file()
+                and file_path.suffix.lower() in DocParser.SUPPORTED
+            ]
+            total = len(files)
+            progress_begin("reindex", total=total, message="准备重建索引...")
 
-        with self._lock:
-            stats["removed"] = self._prune_stale_index_unlocked(sub_path)
+            for i, file_path in enumerate(files, start=1):
+                progress_step(
+                    current=i,
+                    message=f"正在索引 ({i}/{total}): {file_path.name}",
+                )
+                try:
+                    result = self.index_file(file_path, force=force)
+                    if result == "indexed":
+                        stats["indexed"] += 1
+                    elif result == "skipped":
+                        stats["skipped"] += 1
+                except Exception as e:
+                    stats["failed"] += 1
+                    logger.error("索引失败 {}: {}", file_path, e)
+
+            progress_step(message="正在清理失效索引...")
+            with self._lock:
+                stats["removed"] = self._prune_stale_index_unlocked(sub_path)
+        finally:
+            progress_finish()
         return stats
 
     def prune_stale_index(self, sub_path: str | None = None) -> int:
@@ -115,17 +135,54 @@ class DocumentIndexer:
         self._purge_document(doc.id, doc.path, reason="file_deleted")
         return True
 
-    def _purge_document(self, doc_id: str, path: str, reason: str = "") -> None:
-        self.sqlite.delete_document(doc_id)
-        self.vector_store.delete_document_vectors(doc_id)
-        self.audit.log("document_removed", {"path": path, "document_id": doc_id, "reason": reason})
-        logger.info("已移除索引: {} ({})", path, reason)
-
-    def index_file(self, file_path: Path) -> str:
+    def purge_document_index(self, document_id: str, *, reason: str = "manual") -> dict[str, str | int]:
+        """清除文档对应的 SQLite 切块、向量索引与媒体缓存."""
         with self._lock:
-            return self._index_file_unlocked(file_path)
+            return self._purge_document_index_unlocked(document_id, reason=reason)
 
-    def _index_file_unlocked(self, file_path: Path) -> str:
+    def _purge_document_index_unlocked(
+        self, document_id: str, *, reason: str = "manual"
+    ) -> dict[str, str | int]:
+        doc = self.sqlite.get_document(document_id)
+        if not doc:
+            return {"status": "error", "message": "文档不存在"}
+        chunk_count = len(self.sqlite.list_chunk_ids(document_id))
+        removed_vectors = self._purge_document(doc.id, doc.path, reason=reason)
+        return {
+            "status": "ok",
+            "document_id": document_id,
+            "path": doc.path,
+            "chunks_removed": chunk_count,
+            "vectors_removed": removed_vectors,
+        }
+
+    def _purge_document(self, doc_id: str, path: str, reason: str = "") -> int:
+        chunk_ids = self.sqlite.list_chunk_ids(doc_id)
+        removed_vectors = self.vector_store.delete_document_vectors(
+            doc_id, chunk_ids=chunk_ids
+        )
+        self._cleanup_media_assets(doc_id)
+        self.sqlite.delete_document(doc_id)
+        self.audit.log(
+            "document_removed",
+            {
+                "path": path,
+                "document_id": doc_id,
+                "reason": reason,
+                "vectors_removed": removed_vectors,
+            },
+        )
+        logger.info("已移除索引: {} ({}, {} 条向量)", path, reason, removed_vectors)
+        return removed_vectors
+
+    def _cleanup_media_assets(self, document_id: str) -> None:
+        MediaStore(self.workspace.knowledge_dir).delete_document_assets(document_id)
+
+    def index_file(self, file_path: Path, *, force: bool = False) -> str:
+        with self._lock:
+            return self._index_file_unlocked(file_path, force=force)
+
+    def _index_file_unlocked(self, file_path: Path, *, force: bool = False) -> str:
         file_path = file_path.resolve()
         knowledge = self.workspace.knowledge_dir.resolve()
         try:
@@ -135,8 +192,14 @@ class DocumentIndexer:
 
         sha256 = self._file_hash(file_path)
         existing = self.sqlite.get_document_by_path(rel_path)
-        if existing and existing.sha256 == sha256 and existing.status == "indexed":
-            return "skipped"
+        if (
+            not force
+            and existing
+            and existing.sha256 == sha256
+            and existing.status == "indexed"
+        ):
+            if not self._needs_reindex_media(existing.id, file_path):
+                return "skipped"
 
         doc_id = existing.id if existing else None
         doc = self.sqlite.upsert_document(
@@ -152,11 +215,13 @@ class DocumentIndexer:
 
         try:
             _, sections = self.parser.parse(file_path)
+            sections = self._enrich_with_multimodal(file_path, rel_path, sections, doc.id)
             chunks = self.chunker.chunk_document(doc.id, sections, file_path.name, rel_path)
 
             if existing:
+                old_chunk_ids = self.sqlite.list_chunk_ids(doc.id)
                 self.sqlite.delete_document_chunks(doc.id)
-                self.vector_store.delete_document_vectors(doc.id)
+                self.vector_store.delete_document_vectors(doc.id, chunk_ids=old_chunk_ids)
 
             if not chunks:
                 self.sqlite.upsert_document(
@@ -181,6 +246,7 @@ class DocumentIndexer:
                         "summary": chunk["summary"],
                         "page_no": chunk.get("page_no"),
                         "heading_path": chunk.get("heading_path"),
+                        "tags": chunk.get("tags") or "",
                         "token_count": chunk["token_count"],
                     }
                 )
@@ -192,7 +258,7 @@ class DocumentIndexer:
                         "filename": file_path.name,
                         "content": chunk["content"],
                         "summary": chunk["summary"],
-                        "tags": "",
+                        "tags": chunk.get("tags") or "",
                         "page_no": chunk.get("page_no") or 0,
                         "heading_path": chunk.get("heading_path") or "",
                         "embedding": emb,
@@ -214,8 +280,8 @@ class DocumentIndexer:
             self.audit.log("document_index_failed", {"path": rel_path, "error": str(e)})
             raise
 
-    def delete_document_file(self, document_id: str) -> dict[str, str | bool]:
-        """删除知识库文件并清理索引."""
+    def delete_document_file(self, document_id: str) -> dict[str, str | bool | int]:
+        """删除知识库文件并清理对应索引."""
         doc = self.sqlite.get_document(document_id)
         if not doc:
             return {"status": "error", "message": "文档不存在"}
@@ -227,19 +293,90 @@ class DocumentIndexer:
         except ValueError:
             return {"status": "error", "message": "文档路径非法"}
 
-        with self._lock:
-            if full_path.exists() and full_path.is_file():
-                full_path.unlink()
-            self._purge_document(doc.id, doc.path, reason="user_delete")
+        file_deleted = False
+        progress_begin("delete", message=f"正在删除: {doc.filename}")
+        try:
+            with self._lock:
+                if full_path.exists() and full_path.is_file():
+                    try:
+                        full_path.unlink()
+                        file_deleted = True
+                    except OSError as e:
+                        logger.warning("删除磁盘文件失败 {}: {}", full_path, e)
+                progress_step(message="正在清理索引与向量...")
+                purge = self._purge_document_index_unlocked(document_id, reason="user_delete")
+                if purge.get("status") != "ok":
+                    return purge
+        finally:
+            progress_finish()
 
-        return {"status": "ok", "path": doc.path, "document_id": document_id}
+        return {
+            "status": "ok",
+            "path": doc.path,
+            "document_id": document_id,
+            "file_deleted": file_deleted,
+            "chunks_removed": purge.get("chunks_removed", 0),
+            "vectors_removed": purge.get("vectors_removed", 0),
+        }
 
     def clear_index(self) -> None:
-        with self._lock:
-            self.sqlite.clear_all_documents()
-            self.vector_store.clear_document_vectors()
-            self.audit.log("index_cleared", {})
-            logger.info("知识库索引已清空")
+        progress_begin("clear", message="正在清空索引...")
+        try:
+            with self._lock:
+                progress_step(message="正在删除切块记录...")
+                self.sqlite.clear_all_documents()
+                progress_step(message="正在清空向量索引...")
+                self.vector_store.clear_document_vectors()
+                progress_step(message="正在清理媒体缓存...")
+                MediaStore(self.workspace.knowledge_dir).clear_all()
+                self.audit.log("index_cleared", {})
+                logger.info("知识库索引与向量数据已清空")
+        finally:
+            progress_finish()
+
+    def _needs_reindex_media(self, document_id: str, file_path: Path) -> bool:
+        """媒体文件缺少有效视觉描述时需重新处理."""
+        suffix = file_path.suffix.lower()
+        if suffix in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
+            return not self.sqlite.document_has_media_description(document_id)
+        if self.sqlite.count_document_chunks(document_id) == 0:
+            return True
+        return False
+
+    def _enrich_with_multimodal(
+        self, file_path: Path, rel_path: str, sections: list[dict], document_id: str
+    ) -> list[dict]:
+        settings = self.model_gateway.config.load_settings()
+        if not settings.multimodal_index_enabled:
+            return sections
+
+        extractor = MediaExtractor(
+            self.workspace.knowledge_dir,
+            video_max_frames=settings.video_max_frames,
+            video_frame_interval_sec=settings.video_frame_interval_sec,
+        )
+        assets = extractor.extract(file_path, sections, rel_path=rel_path)
+        if not assets:
+            return sections
+
+        processor = MultimodalProcessor(
+            self.model_gateway,
+            self.audit,
+            knowledge_dir=self.workspace.knowledge_dir,
+            max_images=settings.max_images_per_document,
+        )
+        media_sections = processor.describe_all(
+            assets,
+            document_id=document_id,
+            document_path=rel_path,
+        )
+        return self._merge_sections(sections, media_sections)
+
+    @staticmethod
+    def _merge_sections(text_sections: list[dict], media_sections: list[dict]) -> list[dict]:
+        merged = [s for s in text_sections if (s.get("content") or "").strip()]
+        merged.extend(media_sections)
+        return merged
 
     @staticmethod
     def _file_hash(file_path: Path) -> str:

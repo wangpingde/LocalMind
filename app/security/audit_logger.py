@@ -119,6 +119,31 @@ class AuditLogger:
             {"source": source, "message": message, **(detail or {})},
         )
 
+    def delete_logs_for_conversation(
+        self, conversation_id: str, *, agent_run_ids: list[str] | None = None
+    ) -> int:
+        """删除与会话相关的审计记录."""
+        run_ids = set(agent_run_ids or [])
+        removed = 0
+        with self._session() as session:
+            rows = list(session.execute(select(AuditLog)).scalars())
+            for row in rows:
+                if not row.event_detail:
+                    continue
+                try:
+                    detail = json.loads(row.event_detail)
+                except json.JSONDecodeError:
+                    continue
+                if detail.get("conversation_id") == conversation_id:
+                    session.delete(row)
+                    removed += 1
+                    continue
+                if run_ids and detail.get("agent_run_id") in run_ids:
+                    session.delete(row)
+                    removed += 1
+            session.commit()
+        return removed
+
     def query_logs(
         self, event_type: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:

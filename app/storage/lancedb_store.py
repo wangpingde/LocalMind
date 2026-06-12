@@ -38,7 +38,13 @@ class LanceDBStore:
         self._ensure_tables()
 
     def _list_tables(self) -> list[str]:
-        return self.db.list_tables()
+        raw = self.db.list_tables()
+        if isinstance(raw, list):
+            return raw
+        tables = getattr(raw, "tables", None)
+        if tables is not None:
+            return list(tables)
+        return list(raw)
 
     def _ensure_tables(self) -> None:
         self._create_table_if_missing(
@@ -122,6 +128,15 @@ class LanceDBStore:
             logger.warning("向量检索失败: {}", e)
             return []
 
+    def delete_memory_vector(self, memory_id: str) -> None:
+        if "memory_vectors" not in self._list_tables():
+            return
+        tbl = self.db.open_table("memory_vectors")
+        try:
+            tbl.delete(f'memory_id = "{memory_id}"')
+        except Exception as e:
+            logger.debug("删除记忆向量失败 {}: {}", memory_id, e)
+
     def upsert_memory_vectors(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
             return
@@ -147,6 +162,29 @@ class LanceDBStore:
         except Exception:
             return []
 
+    @staticmethod
+    def _escape_filter_value(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def count_document_vectors(self, document_id: str | None = None) -> int:
+        if "documents_vectors" not in self._list_tables():
+            return 0
+        try:
+            tbl = self.db.open_table("documents_vectors")
+            if not document_id:
+                return tbl.count_rows()
+            safe_id = self._escape_filter_value(document_id)
+            arrow = (
+                tbl.search()
+                .where(f'document_id = "{safe_id}"')
+                .limit(10_000)
+                .to_arrow()
+            )
+            return arrow.num_rows
+        except Exception as e:
+            logger.debug("统计文档向量失败: {}", e)
+            return 0
+
     def clear_document_vectors(self) -> None:
         if "documents_vectors" in self._list_tables():
             self.db.drop_table("documents_vectors")
@@ -154,9 +192,34 @@ class LanceDBStore:
         self._ensure_tables()
         logger.info("文档向量索引已清空")
 
-    def delete_document_vectors(self, document_id: str) -> None:
+    def delete_document_vectors(
+        self, document_id: str, *, chunk_ids: list[str] | None = None
+    ) -> int:
+        if "documents_vectors" not in self._list_tables():
+            return 0
+
+        before = self.count_document_vectors(document_id)
         tbl = self.db.open_table("documents_vectors")
+        safe_id = self._escape_filter_value(document_id)
         try:
-            tbl.delete(f'document_id = "{document_id}"')
-        except Exception:
-            pass
+            tbl.delete(f'document_id = "{safe_id}"')
+        except Exception as e:
+            logger.warning("按 document_id 删除向量失败 {}: {}", document_id, e)
+
+        remaining = self.count_document_vectors(document_id)
+        if remaining > 0 and chunk_ids:
+            for chunk_id in chunk_ids:
+                safe_chunk = self._escape_filter_value(chunk_id)
+                try:
+                    tbl.delete(f'chunk_id = "{safe_chunk}"')
+                except Exception as e:
+                    logger.debug("按 chunk_id 删除向量失败 {}: {}", chunk_id, e)
+            remaining = self.count_document_vectors(document_id)
+
+        removed = max(before - remaining, 0)
+
+        if remaining > 0:
+            logger.warning("文档 {} 仍有 {} 条向量残留", document_id, remaining)
+        elif before > 0 or chunk_ids:
+            logger.debug("已删除文档 {} 的向量 (before={}, after={})", document_id, before, remaining)
+        return removed

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.core.rag.indexer import DocumentIndexer
 
 from app.config.workspace import Workspace
 from app.storage.sqlite_store import Project, SQLiteStore
@@ -93,7 +97,21 @@ class ProjectManager:
         row = self.sqlite.update_project(project_id, name=name, description=description)
         return ProjectInfo.from_row(row) if row else None
 
-    def delete_project(self, project_id: str) -> bool:
+    def delete_project(
+        self, project_id: str, *, indexer: DocumentIndexer | None = None
+    ) -> bool:
+        row = self.sqlite.get_project(project_id)
+        if not row:
+            return False
+
+        slug = row.slug
+        project_dir = self.workspace.knowledge_dir / "projects" / slug
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+
+        if indexer is not None:
+            indexer.prune_stale_index(f"projects/{slug}")
+
         return self.sqlite.delete_project(project_id)
 
     def path_prefix(self, project_id: str | None) -> str | None:

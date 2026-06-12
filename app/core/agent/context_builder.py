@@ -61,12 +61,20 @@ class ContextBuilder:
 
         if rag_results:
             parts.append("\n# Local Knowledge")
+            image_refs = [d for d in rag_results if getattr(d, "media_path", None)]
+            if image_refs:
+                parts.append(
+                    "以下片段含配图（界面会在回答下方自动展示原图）。请用自然语言描述图中内容，"
+                    "不要说「见配图路径」或输出 `[配图:...]` 这类标记。"
+                )
             for i, doc in enumerate(rag_results, 1):
                 source = doc.filename
                 if settings.send_file_path_to_model:
                     source = f"{doc.filename} ({doc.path})"
                 heading = f" > {doc.heading_path}" if doc.heading_path else ""
-                parts.append(f"## 片段 {i}: {source}{heading}\n{doc.content}")
+                has_image = bool(getattr(doc, "media_path", None))
+                image_hint = "\n（含配图，见界面展示）" if has_image else ""
+                parts.append(f"## 片段 {i}: {source}{heading}{image_hint}\n{doc.content}")
 
         system_prompt = "\n".join(parts)
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]

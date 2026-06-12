@@ -29,6 +29,10 @@ class SettingsUpdate(BaseModel):
     tools_enabled: bool | None = None
     agent_max_steps: int | None = None
     auto_confirm_file_write: bool | None = None
+    multimodal_index_enabled: bool | None = None
+    max_images_per_document: int | None = None
+    video_max_frames: int | None = None
+    video_frame_interval_sec: float | None = None
 
 
 class ProviderUpdate(BaseModel):
@@ -37,6 +41,8 @@ class ProviderUpdate(BaseModel):
     api_key: str = ""
     chat_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+    vision_model: str = ""
+    supports_vision: bool | None = None
     temperature: float = 0.7
     max_tokens: int = 4096
 
@@ -89,6 +95,8 @@ def save_providers(payload: ProvidersPayload):
             base_url=p.base_url,
             chat_model=p.chat_model,
             embedding_model=p.embedding_model,
+            vision_model=p.vision_model,
+            supports_vision=p.supports_vision,
             temperature=p.temperature,
             max_tokens=p.max_tokens,
         )

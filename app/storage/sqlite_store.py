@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -191,9 +191,36 @@ class SQLiteStore:
         with self.session() as s:
             return s.get(Document, document_id)
 
+    def get_chunk(self, chunk_id: str) -> Chunk | None:
+        with self.session() as s:
+            return s.get(Chunk, chunk_id)
+
     def list_documents(self) -> list[Document]:
         with self.session() as s:
             return list(s.execute(select(Document).order_by(Document.updated_at.desc())).scalars())
+
+    def count_document_chunks(self, document_id: str) -> int:
+        with self.session() as s:
+            chunks = s.execute(select(Chunk).where(Chunk.document_id == document_id)).scalars()
+            return len(list(chunks))
+
+    def document_has_media_description(self, document_id: str) -> bool:
+        with self.session() as s:
+            chunks = s.execute(select(Chunk).where(Chunk.document_id == document_id)).scalars()
+            for chunk in chunks:
+                tags = chunk.tags or ""
+                content = chunk.content or ""
+                if tags in ("media:image", "media:video"):
+                    return True
+                if "[图片描述]" in content or "[视频画面]" in content:
+                    return True
+            return False
+
+    def list_chunk_ids(self, document_id: str) -> list[str]:
+        with self.session() as s:
+            return list(
+                s.execute(select(Chunk.id).where(Chunk.document_id == document_id)).scalars()
+            )
 
     def delete_document_chunks(self, document_id: str) -> None:
         with self.session() as s:
@@ -295,8 +322,7 @@ class SQLiteStore:
             mem = s.get(Memory, memory_id)
             if not mem:
                 return False
-            mem.status = "deleted"
-            mem.updated_at = _now()
+            s.delete(mem)
             s.commit()
             return True
 
@@ -366,8 +392,7 @@ class SQLiteStore:
             project = s.get(Project, project_id)
             if not project:
                 return False
-            project.status = "deleted"
-            project.updated_at = _now()
+            s.delete(project)
             s.commit()
             return True
 
@@ -382,11 +407,60 @@ class SQLiteStore:
             s.refresh(conv)
             return conv
 
-    def list_conversations(self) -> list[Conversation]:
+    @staticmethod
+    def _timestamp_local_date(iso_ts: str | None) -> date | None:
+        if not iso_ts:
+            return None
+        try:
+            dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().date()
+
+    def list_conversations(
+        self,
+        *,
+        scope: str = "today",
+        keyword: str | None = None,
+        today_only: bool | None = None,
+    ) -> list[Conversation]:
+        """scope: today | week | month | all"""
+        if today_only is not None:
+            scope = "today" if today_only else "all"
+
         with self.session() as s:
-            return list(
+            rows = list(
                 s.execute(select(Conversation).order_by(Conversation.updated_at.desc())).scalars()
             )
+
+        now_local = datetime.now().astimezone()
+        today = now_local.date()
+        kw = (keyword or "").strip().lower()
+
+        filtered: list[Conversation] = []
+        for conv in rows:
+            ts = conv.updated_at or conv.created_at
+            local_date = self._timestamp_local_date(ts)
+            if scope == "today":
+                if local_date != today:
+                    continue
+            elif scope == "week":
+                if local_date is None or local_date < today - timedelta(days=6):
+                    continue
+            elif scope == "month":
+                if local_date is None or local_date < today - timedelta(days=29):
+                    continue
+            elif scope != "all":
+                continue
+
+            if kw:
+                title = (conv.title or "").lower()
+                if kw not in title:
+                    continue
+            filtered.append(conv)
+        return filtered
 
     def get_conversation(self, conv_id: str) -> Conversation | None:
         with self.session() as s:
@@ -431,6 +505,48 @@ class SQLiteStore:
                 ).scalars()
             )
             return rows[-limit:]
+
+    def list_agent_run_ids(self, conversation_id: str) -> list[str]:
+        with self.session() as s:
+            return list(
+                s.execute(
+                    select(AgentRun.id).where(AgentRun.conversation_id == conversation_id)
+                ).scalars()
+            )
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        """物理删除会话及其消息、Agent 运行记录."""
+        with self.session() as s:
+            conv = s.get(Conversation, conversation_id)
+            if not conv:
+                return False
+
+            runs = list(
+                s.execute(
+                    select(AgentRun).where(AgentRun.conversation_id == conversation_id)
+                ).scalars()
+            )
+            for run in runs:
+                steps = list(
+                    s.execute(
+                        select(AgentRunStep).where(AgentRunStep.run_id == run.id)
+                    ).scalars()
+                )
+                for step in steps:
+                    s.delete(step)
+                s.delete(run)
+
+            messages = list(
+                s.execute(
+                    select(Message).where(Message.conversation_id == conversation_id)
+                ).scalars()
+            )
+            for msg in messages:
+                s.delete(msg)
+
+            s.delete(conv)
+            s.commit()
+            return True
 
     # --- Skills ---
 
