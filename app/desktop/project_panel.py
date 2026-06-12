@@ -116,6 +116,15 @@ class ProjectPanel(QWidget):
         if not pid:
             QMessageBox.information(self, "提示", "请先选择项目")
             return
+        if (
+            QMessageBox.question(
+                self,
+                "确认",
+                "确定永久删除该项目？\n将删除项目目录及其中所有文件，并清理相关索引，不可恢复。",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
         try:
             self.client.delete(f"/projects/{pid}")
             self.refresh()

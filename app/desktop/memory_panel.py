@@ -144,7 +144,10 @@ class MemoryPanel(QWidget):
         mid = self._selected_id()
         if not mid:
             return
-        if QMessageBox.question(self, "确认", "确定删除？") != QMessageBox.StandardButton.Yes:
+        if (
+            QMessageBox.question(self, "确认", "确定永久删除该记忆？此操作不可恢复。")
+            != QMessageBox.StandardButton.Yes
+        ):
             return
         try:
             self.client.delete(f"/memories/{mid}")

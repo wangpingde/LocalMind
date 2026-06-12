@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import socket
 import sys
 import threading
@@ -20,7 +21,10 @@ STARTUP_TIMEOUT = 45.0
 def _setup_logging(workspace: Workspace) -> None:
     log_file = workspace.logs_dir / "app.log"
     logger.remove()
-    logger.add(sys.stderr, level="INFO")
+    # 打包为无控制台(windowed)程序时 sys.stderr / sys.stdout 为 None，
+    # 直接 logger.add(None) 会抛异常导致启动即崩溃，这里做保护。
+    if sys.stderr is not None:
+        logger.add(sys.stderr, level="INFO")
     logger.add(str(log_file), rotation="10 MB", retention="7 days", level="DEBUG")
 
 
@@ -31,7 +35,15 @@ def _start_api_server(port: int) -> None:
         from app.server.api import create_app
 
         app = create_app()
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        # log_config=None：避免 uvicorn 默认日志配置向 stdout/stderr 写入，
+        # 在无控制台(windowed)打包环境下 stdout/stderr 为 None 会报错。
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            log_config=None,
+        )
     except OSError as e:
         logger.warning("端口 {} 启动失败: {}", port, e)
     except Exception as e:
@@ -141,4 +153,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

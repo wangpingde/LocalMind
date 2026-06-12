@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QPushButton,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
@@ -22,6 +23,7 @@ _HISTORY_TITLE_ROLE = Qt.ItemDataRole.UserRole + 1
 
 from app.desktop.api_client import ApiClient
 from app.desktop.chat_panel import ChatPanel
+from app.desktop.history_panel import HistoryPanel
 from app.desktop.context_panel import ContextPanel
 from app.desktop.knowledge_panel import KnowledgePanel
 from app.desktop.memory_panel import MemoryPanel
@@ -90,9 +92,18 @@ class MainWindow(QMainWindow):
 
         nav_layout.addSpacing(8)
 
-        history_label = QLabel("历史")
+        history_header = QHBoxLayout()
+        history_label = QLabel("今日历史")
         history_label.setObjectName("sectionLabel")
-        nav_layout.addWidget(history_label)
+        history_header.addWidget(history_label)
+        history_header.addStretch()
+        browse_btn = QPushButton("全部")
+        browse_btn.setObjectName("ghostButton")
+        browse_btn.setFixedHeight(24)
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_btn.clicked.connect(lambda: self.nav_list.setCurrentRow(1))
+        history_header.addWidget(browse_btn)
+        nav_layout.addLayout(history_header)
 
         self.history_list = QListWidget()
         self.history_list.setObjectName("historyList")
@@ -115,9 +126,9 @@ class MainWindow(QMainWindow):
         self.skill_panel = SkillPanel(self.client)
         self.settings_panel = SettingsPanel(self.client)
 
-        placeholder = QWidget()
+        self.history_panel = HistoryPanel(self.client)
         self.stack.addWidget(self.chat_panel)
-        self.stack.addWidget(placeholder)
+        self.stack.addWidget(self.history_panel)
         self.stack.addWidget(self.knowledge_panel)
         self.stack.addWidget(self.project_panel)
         self.stack.addWidget(self.memory_panel)
@@ -140,16 +151,27 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.splitter)
 
         self.chat_panel.set_context_callback(self.context_panel.update_context)
+        self.chat_panel.set_history_refresh_callback(self._on_conversation_deleted)
+        self.history_panel.conversation_open_requested.connect(self._open_conversation)
+
+    def _on_conversation_deleted(self, _conv_id: str | None = None) -> None:
+        self._load_history()
+        self.history_panel.refresh()
+        self.context_panel.clear()
+
+    def _open_conversation(self, conv_id: str) -> None:
+        self.nav_list.setCurrentRow(0)
+        self.stack.setCurrentIndex(0)
+        self.chat_panel.load_conversation(conv_id)
+        self.context_panel.clear()
 
     def _on_nav_changed(self, index: int) -> None:
-        if index == 1:
-            self._load_history()
-            self.stack.setCurrentIndex(0)
-            return
-        mapping = {0: 0, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+        mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
         self.stack.setCurrentIndex(mapping.get(index, 0))
         if index == 0:
             self.chat_panel._load_projects()
+        elif index == 1:
+            self.history_panel.refresh()
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.history_list.viewport() and event.type() == QEvent.Type.Resize:
@@ -185,7 +207,7 @@ class MainWindow(QMainWindow):
     def _load_history(self) -> None:
         self.history_list.clear()
         try:
-            convs = self.client.get("/conversations")
+            convs = self.client.get("/conversations?scope=today")
             for c in convs:
                 title = (c.get("title") or "对话").strip() or "对话"
                 conv_id = c["id"]

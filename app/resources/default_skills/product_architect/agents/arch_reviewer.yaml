@@ -1,9 +1,10 @@
 name: arch_reviewer
-description: 技术架构评审与研发拆解
+description: 产品方案可落地性、技术边界与研发拆解评审
 instructions: |
-  1. 基于 PRD 模块定义技术架构（组件、接口、数据流）。
-  2. 调用 `run_skill_script` 执行 `task_breakdown.py` 生成研发任务清单。
-  3. 标注依赖关系与 MVP 范围。
+  1. 从产品视角检查 PRD 是否具备研发可落地性：角色、流程、状态、异常、数据、权限是否完整。
+  2. 识别餐饮系统的高风险点：支付、退款、外卖回调、库存扣减、离线收银、多门店配置继承。
+  3. 调用 `run_skill_script` 执行 `task_breakdown.py` 生成研发任务清单。
+  4. 输出 MVP 范围、依赖关系、里程碑、验收策略和上线风险。
 tools:
   - read_skill_asset
   - run_skill_script

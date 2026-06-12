@@ -38,6 +38,7 @@ class AgentResponse:
     token_usage: dict[str, int] = field(default_factory=dict)
     agent_steps: list[dict[str, Any]] = field(default_factory=list)
     agent_run_id: str = ""
+    citation_images: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AgentRuntime:
@@ -331,6 +332,7 @@ class AgentRuntime:
                     "path": d.path,
                     "heading_path": d.heading_path,
                     "score": d.score,
+                    "media_path": d.media_path,
                 }
                 for d in ctx.used_documents
             ],
@@ -341,6 +343,7 @@ class AgentRuntime:
             retrieval_chunks=self.rag.to_dict(
                 type("R", (), {"query": user_input, "results": ctx.used_documents})()
             )["results"],
+            citation_images=self.rag.collect_citation_images(ctx.used_documents),
             token_usage={
                 "input": msg.token_input or 0,
                 "output": msg.token_output or 0,
@@ -383,4 +386,5 @@ class AgentRuntime:
             "token_usage": resp.token_usage,
             "agent_steps": resp.agent_steps,
             "agent_run_id": resp.agent_run_id,
+            "citation_images": resp.citation_images,
         }

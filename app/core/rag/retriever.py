@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.llm.model_gateway import ModelGateway
+from app.core.rag.media_refs import resolve_chunk_media_path
 from app.core.project.project_manager import ProjectManager
 from app.storage.lancedb_store import LanceDBStore
 from app.storage.sqlite_store import SQLiteStore
@@ -23,6 +24,8 @@ class RetrievalResult:
     score: float
     page_no: int | None = None
     heading_path: str = ""
+    media_path: str | None = None
+    tags: str = ""
 
 
 @dataclass
@@ -37,10 +40,12 @@ class RAGEngine:
         vector_store: LanceDBStore,
         sqlite: SQLiteStore,
         model_gateway: ModelGateway,
+        knowledge_dir=None,
     ) -> None:
         self.vector_store = vector_store
         self.sqlite = sqlite
         self.model_gateway = model_gateway
+        self.knowledge_dir = knowledge_dir
 
     def _indexed_document_ids(self) -> set[str]:
         return {
@@ -97,6 +102,7 @@ class RAGEngine:
                 merged[hit.chunk_id].score = min(1.0, merged[hit.chunk_id].score + 0.2)
 
         results = sorted(merged.values(), key=lambda r: r.score, reverse=True)[:top_k]
+        results = [self._attach_media_path(r) for r in results]
         if path_prefix and len(results) < top_k:
             extra = self._keyword_search(
                 query,
@@ -108,7 +114,24 @@ class RAGEngine:
                 if hit.chunk_id not in merged:
                     merged[hit.chunk_id] = hit
             results = sorted(merged.values(), key=lambda r: r.score, reverse=True)[:top_k]
+            results = [self._attach_media_path(r) for r in results]
         return RAGResponse(query=query, results=results)
+
+    def _attach_media_path(self, result: RetrievalResult) -> RetrievalResult:
+        if not self.knowledge_dir:
+            return result
+        chunk = self.sqlite.get_chunk(result.chunk_id)
+        tags = chunk.tags if chunk else result.tags
+        media_path = resolve_chunk_media_path(
+            self.knowledge_dir,
+            tags=tags,
+            document_path=result.path,
+        )
+        if media_path:
+            result.media_path = media_path
+        if chunk and chunk.tags:
+            result.tags = chunk.tags
+        return result
 
     def _keyword_search(
         self,
@@ -172,7 +195,27 @@ class RAGEngine:
                     "score": r.score,
                     "page_no": r.page_no,
                     "heading_path": r.heading_path,
+                    "media_path": r.media_path,
+                    "tags": r.tags,
                 }
                 for r in response.results
             ],
         }
+
+    def collect_citation_images(self, results: list[RetrievalResult]) -> list[dict]:
+        """去重收集可展示的图片引用."""
+        seen: set[str] = set()
+        images: list[dict] = []
+        for r in results:
+            if not r.media_path or r.media_path in seen:
+                continue
+            seen.add(r.media_path)
+            images.append(
+                {
+                    "path": r.media_path,
+                    "filename": r.filename,
+                    "heading_path": r.heading_path,
+                    "chunk_id": r.chunk_id,
+                }
+            )
+        return images
