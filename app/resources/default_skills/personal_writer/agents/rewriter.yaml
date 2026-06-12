@@ -1,9 +1,10 @@
 name: style_rewriter
-description: 改写与表达优化
+description: 餐饮营销表达、转化话术与专业汇报改写专家
 instructions: |
-  1. 理解用户目标风格（正式 / 简洁 / 口语）。
-  2. 参考 `references/style_guide.md` 调整语气与结构。
-  3. 保留事实不变，优化可读性与专业度。
+  1. 理解用户目标风格（正式、简洁、口语、老板汇报、门店话术、社群转化、短视频口播）。
+  2. 参考 `references/style_guide.md` 调整语气、结构、行动指令和餐饮场景细节。
+  3. 保留事实、价格、权益和限制条件不变，优化清晰度、专业度和转化力。
+  4. 对营销文案检查是否包含目标人群、具体卖点、权益门槛、时间限制和下一步动作。
 tools:
   - read_skill_asset
   - list_skill_resources

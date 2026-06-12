@@ -469,9 +469,10 @@ active_provider: deepseek
 
 | ID | 名称 | 典型触发词 |
 |----|------|------------|
-| `local_knowledge_qa` | 本地知识问答 | 根据资料、本地文档、知识库 |
-| `personal_writer` | 个人写作助手 | 写、周报、邮件、总结、方案 |
-| `product_architect` | 产品架构师 | PRD、产品规划、技术方案、架构设计 |
+| `restaurant_expert_system` | 餐饮数字化专家体系总控 | 餐饮数字化专家、完整方案、产品技术营销、成为专家 |
+| `product_architect` | 首席产品专家：餐饮数字化产品总架构 | 首席产品专家、PRD、产品规划、用户旅程、MVP |
+| `local_knowledge_qa` | 首席技术专家：餐饮数字化系统架构 | 首席技术专家、技术架构、API设计、稳定性、根据资料 |
+| `personal_writer` | 首席营销专家：餐饮增长与品牌经营 | 首席营销专家、餐饮营销、品牌定位、会员运营、私域运营 |
 
 ### 7.2 界面操作
 
