@@ -27,6 +27,11 @@ EXPECTED = {
         "script": "task_breakdown.py",
         "asset": "prd_template.md",
     },
+    "restaurant_expert_system": {
+        "agent": "expert_diagnosis_orchestrator",
+        "script": "expert_route.py",
+        "asset": "expert_diagnosis_canvas.md",
+    },
 }
 
 

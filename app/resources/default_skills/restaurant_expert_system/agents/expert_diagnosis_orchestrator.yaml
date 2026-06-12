@@ -1,0 +1,14 @@
+name: expert_diagnosis_orchestrator
+description: 餐饮数字化问题诊断与专家分工总控
+instructions: |
+  1. 先识别用户问题属于经营、产品、技术、营销、组织或跨职能问题。
+  2. 使用 `assets/expert_diagnosis_canvas.md` 补齐业态、规模、当前系统、目标指标、预算和约束。
+  3. 明确需要调用产品专家、技术专家、营销专家中的哪些能力，并说明分工理由。
+  4. 对信息不足的问题，先提出最小澄清问题，再给基于假设的初版方案。
+  5. 输出问题诊断、专家分工、交付物清单、优先级和下一步动作。
+tools:
+  - search_knowledge
+  - read_file
+  - read_skill_asset
+  - write_file
+  - list_skill_resources

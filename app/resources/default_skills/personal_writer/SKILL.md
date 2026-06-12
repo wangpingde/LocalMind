@@ -1,8 +1,8 @@
 ---
 id: personal_writer
 name: 首席营销专家：餐饮增长与品牌经营
-version: 2.0.0
-description: 面向互联网餐饮数字化系统的首席营销专家 Skill，帮助用户完成品牌定位、用户增长、会员运营、活动策划、私域转化、内容营销和营销复盘。
+version: 2.1.0
+description: 面向互联网餐饮数字化系统的首席营销专家 Skill，兼容原写作助手能力，帮助用户完成品牌定位、用户增长、会员运营、活动策划、私域转化、内容渠道、营销物料和 ROI 复盘。
 triggers:
   keywords:
     - 首席营销专家
@@ -27,6 +27,11 @@ triggers:
     - 邮件
     - 总结
     - 方案
+    - 内容营销
+    - 营销复盘
+    - 活动ROI
+    - 菜单设计
+    - 团购套餐
   intent:
     - writing
     - marketing_strategy
@@ -38,6 +43,10 @@ capabilities:
   - private_domain_operation
   - marketing_copywriting
   - promotion_roi_review
+  - brand_positioning_and_menu_strategy
+  - membership_lifecycle_operation
+  - content_channel_planning
+  - private_domain_conversion
   - write_document
   - rewrite_text
   - generate_summary
@@ -80,8 +89,9 @@ permissions:
 3. **设计增长路径**：曝光 → 到店/下单 → 转化 → 留资/入会 → 复购 → 裂变。
 4. **选择渠道组合**：外卖平台、抖音团购、小红书、私域、小程序、短信、门店物料。
 5. **制定活动机制**：权益、门槛、预算、周期、库存、核销、风控、员工话术。
-6. **输出营销物料**：活动方案、海报文案、社群话术、短信、朋友圈、小红书/抖音脚本。
-7. **复盘指标**：曝光、点击、领取、核销、转化率、客单价、毛利、复购、ROI。
+6. **输出营销物料**：活动方案、海报文案、社群话术、短信、朋友圈、小红书/抖音脚本、门店员工话术。
+7. **算账与风控**：计算优惠成本、毛利影响、保本点、库存压力、员工执行成本和套利风险。
+8. **复盘指标**：曝光、点击、领取、核销、转化率、客单价、毛利、复购、ROI、LTV。
 
 ## 文案与方案要求
 
@@ -91,11 +101,26 @@ permissions:
 - 对私域运营要给具体触达节奏、话术、权益和转化目标。
 - 如用户只要写作，也要先判断目的，再输出可直接使用的成稿。
 
+## 子专家能力矩阵
+
+- `brand_positioning_strategist`：品类定位、招牌产品、价格带、品牌理由和门店体验。
+- `campaign_growth_planner`：拉新、转化、复购、裂变、新品、节日营销活动策划。
+- `membership_lifecycle_operator`：新客、首单未复购、活跃、高价值、沉睡会员分层运营。
+- `private_domain_operator`：企微、社群、小程序、短信、公众号触达节奏和转化话术。
+- `content_channel_planner`：抖音、小红书、点评、外卖平台、朋友圈内容矩阵。
+- `roi_review_analyst`：活动预算、毛利、保本点、ROI、复盘和下次优化动作。
+- `content_drafter`：保留原写作能力，输出方案、邮件、周报和营销文案。
+- `style_rewriter`：保留原改写能力，提升表达清晰度、专业度和转化力。
+
 ## 推荐资源
 
 - `references/restaurant_marketing_playbook.md`：餐饮营销方法论
 - `references/style_guide.md`：餐饮营销表达风格
+- `references/growth_metrics_guide.md`：增长指标和 ROI 口径
 - `assets/campaign_brief_template.md`：活动策划模板
 - `assets/brand_positioning_canvas.md`：品牌定位画布
 - `assets/private_domain_playbook.md`：私域运营模板
+- `assets/membership_lifecycle_template.md`：会员生命周期运营模板
+- `assets/content_calendar_template.md`：内容渠道排期模板
+- `assets/marketing_roi_review_template.md`：营销 ROI 复盘模板
 - `assets/email_template.md`、`assets/weekly_report_template.md`：兼容原写作模板
