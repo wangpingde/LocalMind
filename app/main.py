@@ -54,11 +54,15 @@ def _probe_health(port: int) -> dict | None:
     import httpx
 
     try:
-        resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=2.0)
+        # trust_env=False：本地回环请求绝不走系统代理，
+        # 避免同事机器上的代理软件（Clash/V2Ray 等）劫持 127.0.0.1 导致健康检查卡死
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/api/health", timeout=2.0, trust_env=False
+        )
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("健康检查端口 {} 失败: {}", port, e)
     return None
 
 
@@ -69,11 +73,27 @@ def _is_port_open(port: int) -> bool:
 
 def _wait_for_server(port: int, timeout: float = STARTUP_TIMEOUT) -> bool:
     deadline = time.time() + timeout
+    last_log = 0.0
     while time.time() < deadline:
         data = _probe_health(port)
         if data and data.get("status") == "ok":
             return True
+        now = time.time()
+        if now - last_log >= 5.0:
+            logger.info(
+                "等待本地 API 健康检查就绪 (端口 {}，已等待 {:.0f}s/{:.0f}s) ...",
+                port,
+                timeout - (deadline - now),
+                timeout,
+            )
+            last_log = now
         time.sleep(0.25)
+    logger.warning(
+        "端口 {} 健康检查在 {:.0f}s 内未通过；若本机使用了系统代理，"
+        "请确认 127.0.0.1/localhost 已加入代理排除列表（NO_PROXY）",
+        port,
+        timeout,
+    )
     return False
 
 
