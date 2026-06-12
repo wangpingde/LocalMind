@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -157,6 +158,12 @@ class ChatPanel(QWidget):
 
         btn_row.addStretch()
 
+        self.delete_conv_btn = QPushButton("删除会话")
+        self.delete_conv_btn.setObjectName("ghostButton")
+        self.delete_conv_btn.setEnabled(False)
+        self.delete_conv_btn.clicked.connect(self.delete_conversation)
+        btn_row.addWidget(self.delete_conv_btn)
+
         self.clear_btn = QPushButton("新对话")
         self.clear_btn.setObjectName("ghostButton")
         self.clear_btn.clicked.connect(self.new_conversation)
@@ -255,6 +262,13 @@ class ChatPanel(QWidget):
     def set_context_callback(self, callback) -> None:
         self._context_callback = callback
 
+    def set_history_refresh_callback(self, callback) -> None:
+        self._history_refresh_callback = callback
+
+    def _sync_delete_button(self) -> None:
+        busy = bool(self._worker and self._worker.isRunning())
+        self.delete_conv_btn.setEnabled(bool(self.conversation_id) and not busy)
+
     def _ensure_conversation_started(self) -> None:
         if self._conversation_started:
             return
@@ -306,6 +320,7 @@ class ChatPanel(QWidget):
         self._worker.finished_ok.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
+        self._sync_delete_button()
 
     def _start_assistant_stream(self) -> None:
         block = self._format_assistant_block("", "")
@@ -399,17 +414,40 @@ class ChatPanel(QWidget):
             self._reasoning_buffer,
             self._agent_steps_buffer,
         )
+        citation_images = data.get("citation_images") or []
+        if citation_images:
+            self._append_citation_images(citation_images)
         self._finish_stream()
         self.conversation_id = data.get("conversation_id")
         self.send_btn.setEnabled(True)
+        self._sync_delete_button()
         if hasattr(self, "_context_callback"):
             self._context_callback(data)
+
+    def _knowledge_dir(self) -> str | None:
+        try:
+            data = self.client.get("/settings")
+            return data.get("settings", {}).get("knowledge_dir") or None
+        except Exception:
+            return None
+
+    def _append_citation_images(self, images: list[dict]) -> None:
+        from app.desktop.media_html import format_citation_images_html
+
+        block = format_citation_images_html(
+            images,
+            knowledge_dir=self._knowledge_dir(),
+            api_base_url=self.client.base_url,
+        )
+        if block:
+            self._append_html_at_end(block)
 
     def _on_error(self, msg: str) -> None:
         self._stream_timer.stop()
         self._replace_stream_block(f"[错误] {msg}", "", is_error=True)
         self._finish_stream()
         self.send_btn.setEnabled(True)
+        self._sync_delete_button()
 
     def _finish_stream(self) -> None:
         self._streaming = False
@@ -547,11 +585,39 @@ class ChatPanel(QWidget):
     def new_conversation(self) -> None:
         self.conversation_id = None
         self._show_welcome()
+        self._sync_delete_button()
         if hasattr(self, "_context_callback") and callable(self._context_callback):
             self._context_callback({})
 
+    def delete_conversation(self) -> None:
+        if not self.conversation_id:
+            QMessageBox.information(self, "提示", "当前没有可删除的会话")
+            return
+        if self._worker and self._worker.isRunning():
+            QMessageBox.warning(self, "提示", "请等待当前回复完成后再删除")
+            return
+        if (
+            QMessageBox.question(
+                self,
+                "确认",
+                "确定永久删除本次会话？\n将删除所有消息、Agent 执行记录及相关审计日志，不可恢复。",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        conv_id = self.conversation_id
+        try:
+            self.client.delete(f"/conversations/{conv_id}")
+            callback = getattr(self, "_history_refresh_callback", None)
+            if callable(callback):
+                callback(conv_id)
+            self.new_conversation()
+        except Exception as e:
+            QMessageBox.warning(self, "删除失败", str(e))
+
     def load_conversation(self, conv_id: str) -> None:
         self.conversation_id = conv_id
+        self._sync_delete_button()
         self._conversation_started = True
         self._streaming = False
         self._stream_anchor = None

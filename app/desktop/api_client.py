@@ -21,8 +21,8 @@ class ApiClient:
             resp.raise_for_status()
             return resp.json()
 
-    def post(self, path: str, data: dict | None = None) -> Any:
-        with httpx.Client(timeout=120.0) as client:
+    def post(self, path: str, data: dict | None = None, *, timeout: float = 120.0) -> Any:
+        with httpx.Client(timeout=timeout) as client:
             resp = client.post(self._url(path), json=data or {})
             resp.raise_for_status()
             return resp.json()
@@ -33,8 +33,8 @@ class ApiClient:
             resp.raise_for_status()
             return resp.json()
 
-    def delete(self, path: str) -> Any:
-        with httpx.Client(timeout=30.0) as client:
+    def delete(self, path: str, *, timeout: float = 120.0) -> Any:
+        with httpx.Client(timeout=timeout) as client:
             resp = client.delete(self._url(path))
             resp.raise_for_status()
             return resp.json()
@@ -93,7 +93,7 @@ class ApiClient:
         params: dict | None = None,
         field_name: str = "files",
     ) -> Any:
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=600.0) as client:
             file_handles = []
             multipart: list[tuple[str, tuple[str, object]]] = []
             try:
@@ -108,3 +108,13 @@ class ApiClient:
             finally:
                 for fh in file_handles:
                     fh.close()
+
+    def upload_one(
+        self,
+        path: str,
+        file_path: str,
+        *,
+        params: dict | None = None,
+        field_name: str = "files",
+    ) -> Any:
+        return self.upload_many(path, [file_path], params=params, field_name=field_name)

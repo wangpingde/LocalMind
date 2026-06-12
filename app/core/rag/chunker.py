@@ -7,6 +7,15 @@ import uuid
 from typing import Any
 
 
+def _finalize_tags(section: dict) -> str:
+    tags = (section.get("tags") or "").strip()
+    media_ref = section.get("media_ref")
+    if media_ref and "ref=" not in tags:
+        extra = f"ref={media_ref}"
+        return f"{tags};{extra}" if tags else extra
+    return tags
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
@@ -50,6 +59,7 @@ class Chunker:
                         "summary": part[:200],
                         "page_no": section.get("page_no"),
                         "heading_path": section.get("heading_path") or "",
+                        "tags": _finalize_tags(section),
                         "token_count": estimate_tokens(part),
                         "filename": filename,
                         "path": rel_path,

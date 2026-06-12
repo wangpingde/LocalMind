@@ -33,6 +33,7 @@ class ContextPanel(QWidget):
         self.memories_view = self._make_view()
         self.skills_view = self._make_view()
         self.chunks_view = self._make_view()
+        self.images_view = self._make_view()
         self.steps_view = self._make_view()
         self.audit_view = self._make_view()
         self.usage_view = self._make_view()
@@ -41,6 +42,7 @@ class ContextPanel(QWidget):
         self.tabs.addTab(self.memories_view, "记忆")
         self.tabs.addTab(self.skills_view, "Skills")
         self.tabs.addTab(self.chunks_view, "检索")
+        self.tabs.addTab(self.images_view, "配图")
         self.tabs.addTab(self.steps_view, "步骤")
         self.tabs.addTab(self.audit_view, "审计")
         self.tabs.addTab(self.usage_view, "消耗")
@@ -89,6 +91,35 @@ class ContextPanel(QWidget):
             chunk_parts.append(f"── 片段 {i}: {c.get('filename', '')} ──")
             chunk_parts.append(c.get("content", "")[:500])
         self.chunks_view.setPlainText("\n\n".join(chunk_parts) or "无检索片段")
+
+        citation_images = data.get("citation_images") or []
+        if not citation_images:
+            for c in chunks:
+                if c.get("media_path"):
+                    citation_images.append(
+                        {
+                            "path": c.get("media_path"),
+                            "filename": c.get("filename", ""),
+                            "heading_path": c.get("heading_path", ""),
+                        }
+                    )
+        if self.client and citation_images:
+            from app.desktop.media_html import format_citation_images_html
+
+            knowledge_dir = None
+            try:
+                settings = self.client.get("/settings")
+                knowledge_dir = settings.get("settings", {}).get("knowledge_dir")
+            except Exception:
+                pass
+            html = format_citation_images_html(
+                citation_images,
+                knowledge_dir=knowledge_dir,
+                api_base_url=self.client.base_url,
+            )
+            self.images_view.setHtml(html or "无引用配图")
+        else:
+            self.images_view.setPlainText("无引用配图")
 
         agent_steps = data.get("agent_steps", [])
         step_parts: list[str] = []

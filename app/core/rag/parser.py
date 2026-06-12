@@ -29,6 +29,29 @@ class DocParser:
         ".ts",
         ".yaml",
         ".yml",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+    }
+
+    MEDIA_ONLY = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
     }
 
     def parse(self, file_path: Path) -> tuple[str, list[dict]]:
@@ -52,11 +75,25 @@ class DocParser:
             ".ts": self._parse_code,
             ".yaml": self._parse_code,
             ".yml": self._parse_code,
+            ".png": self._parse_media_placeholder,
+            ".jpg": self._parse_media_placeholder,
+            ".jpeg": self._parse_media_placeholder,
+            ".webp": self._parse_media_placeholder,
+            ".gif": self._parse_media_placeholder,
+            ".bmp": self._parse_media_placeholder,
+            ".mp4": self._parse_media_placeholder,
+            ".mov": self._parse_media_placeholder,
+            ".webm": self._parse_media_placeholder,
+            ".mkv": self._parse_media_placeholder,
         }
         handler = parsers.get(suffix)
         if not handler:
             raise ValueError(f"不支持的文件格式: {suffix}")
         return handler(file_path)
+
+    def _parse_media_placeholder(self, file_path: Path) -> tuple[str, list[dict]]:
+        """独立图片/视频由 MediaExtractor 处理，此处返回空文本."""
+        return "", []
 
     def _parse_text(self, file_path: Path) -> tuple[str, list[dict]]:
         text = file_path.read_text(encoding="utf-8", errors="ignore")

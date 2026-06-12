@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import socket
 import sys
 import threading
@@ -20,7 +21,10 @@ STARTUP_TIMEOUT = 45.0
 def _setup_logging(workspace: Workspace) -> None:
     log_file = workspace.logs_dir / "app.log"
     logger.remove()
-    logger.add(sys.stderr, level="INFO")
+    # 打包为无控制台(windowed)程序时 sys.stderr / sys.stdout 为 None，
+    # 直接 logger.add(None) 会抛异常导致启动即崩溃，这里做保护。
+    if sys.stderr is not None:
+        logger.add(sys.stderr, level="INFO")
     logger.add(str(log_file), rotation="10 MB", retention="7 days", level="DEBUG")
 
 
@@ -31,7 +35,15 @@ def _start_api_server(port: int) -> None:
         from app.server.api import create_app
 
         app = create_app()
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        # log_config=None：避免 uvicorn 默认日志配置向 stdout/stderr 写入，
+        # 在无控制台(windowed)打包环境下 stdout/stderr 为 None 会报错。
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            log_config=None,
+        )
     except OSError as e:
         logger.warning("端口 {} 启动失败: {}", port, e)
     except Exception as e:
@@ -42,11 +54,15 @@ def _probe_health(port: int) -> dict | None:
     import httpx
 
     try:
-        resp = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=2.0)
+        # trust_env=False：本地回环请求绝不走系统代理，
+        # 避免同事机器上的代理软件（Clash/V2Ray 等）劫持 127.0.0.1 导致健康检查卡死
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/api/health", timeout=2.0, trust_env=False
+        )
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("健康检查端口 {} 失败: {}", port, e)
     return None
 
 
@@ -57,11 +73,27 @@ def _is_port_open(port: int) -> bool:
 
 def _wait_for_server(port: int, timeout: float = STARTUP_TIMEOUT) -> bool:
     deadline = time.time() + timeout
+    last_log = 0.0
     while time.time() < deadline:
         data = _probe_health(port)
         if data and data.get("status") == "ok":
             return True
+        now = time.time()
+        if now - last_log >= 5.0:
+            logger.info(
+                "等待本地 API 健康检查就绪 (端口 {}，已等待 {:.0f}s/{:.0f}s) ...",
+                port,
+                timeout - (deadline - now),
+                timeout,
+            )
+            last_log = now
         time.sleep(0.25)
+    logger.warning(
+        "端口 {} 健康检查在 {:.0f}s 内未通过；若本机使用了系统代理，"
+        "请确认 127.0.0.1/localhost 已加入代理排除列表（NO_PROXY）",
+        port,
+        timeout,
+    )
     return False
 
 
@@ -141,4 +173,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

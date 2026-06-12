@@ -61,6 +61,9 @@ class SettingsPanel(QWidget):
         self.api_key = self._line_edit(password=True, placeholder="留空则保持原 Key")
         self.chat_model = self._line_edit()
         self.embedding_model = self._line_edit()
+        self.vision_model = self._line_edit(
+            placeholder="留空则使用对话模型（需支持视觉，如 gpt-4o）"
+        )
         self.temperature_combo = self._combo(
             ["0.0", "0.3", "0.5", "0.7", "1.0", "1.2", "1.5", "2.0"], editable=True
         )
@@ -75,6 +78,7 @@ class SettingsPanel(QWidget):
             ("API Key", self.api_key),
             ("对话模型", self.chat_model),
             ("向量模型", self.embedding_model),
+            ("视觉模型", self.vision_model),
             ("Temperature", self.temperature_combo),
             ("Max Tokens", self.max_tokens_combo),
         ):
@@ -121,6 +125,23 @@ class SettingsPanel(QWidget):
         )
         agent_layout.addWidget(self._field_row("最大执行步骤", self.agent_max_steps_combo))
         body_layout.addWidget(agent_group)
+
+        # ── 知识库多模态 ──
+        rag_group, rag_layout = self._section("知识库多模态")
+        self.multimodal_index = self._checkbox("索引时分析文档内图片/视频（需视觉模型）")
+        self.multimodal_index.setToolTip(
+            "从 PDF/DOCX/PPTX/HTML 及独立图片/视频中生成文字描述并纳入检索"
+        )
+        self.max_images_per_doc = self._combo(
+            ["10", "20", "30", "50"], editable=True
+        )
+        self.video_max_frames_combo = self._combo(
+            ["4", "8", "12", "20"], editable=True
+        )
+        self._checkbox_list(rag_layout, [self.multimodal_index])
+        rag_layout.addWidget(self._field_row("每文档最大图片数", self.max_images_per_doc))
+        rag_layout.addWidget(self._field_row("视频最大抽帧数", self.video_max_frames_combo))
+        body_layout.addWidget(rag_group)
 
         # ── 路径配置 ──
         path_group, path_layout = self._section("路径配置")
@@ -250,6 +271,17 @@ class SettingsPanel(QWidget):
             )
             self.skill_network.setChecked(settings.get("skill_network_enabled", False))
             self.shell_tool.setChecked(settings.get("shell_tool_enabled", False))
+            self.multimodal_index.setChecked(
+                settings.get("multimodal_index_enabled", True)
+            )
+            self._set_combo_text(
+                self.max_images_per_doc,
+                str(settings.get("max_images_per_document", 30)),
+            )
+            self._set_combo_text(
+                self.video_max_frames_combo,
+                str(settings.get("video_max_frames", 12)),
+            )
             self._set_combo_text(
                 self.agent_max_steps_combo, str(settings.get("agent_max_steps", 8))
             )
@@ -287,6 +319,7 @@ class SettingsPanel(QWidget):
         self.api_key.clear()
         self.chat_model.setText(p.get("chat_model", ""))
         self.embedding_model.setText(p.get("embedding_model", ""))
+        self.vision_model.setText(p.get("vision_model", ""))
         self._set_combo_text(self.temperature_combo, str(p.get("temperature", 0.7)))
         self._set_combo_text(self.max_tokens_combo, str(p.get("max_tokens", 4096)))
 
@@ -308,6 +341,7 @@ class SettingsPanel(QWidget):
                             "api_key": self.api_key.text(),
                             "chat_model": self.chat_model.text(),
                             "embedding_model": self.embedding_model.text(),
+                            "vision_model": self.vision_model.text().strip(),
                             "temperature": temperature,
                             "max_tokens": max_tokens,
                         }
@@ -325,6 +359,13 @@ class SettingsPanel(QWidget):
                     "auto_confirm_file_write": self.auto_confirm_write.isChecked(),
                     "skill_network_enabled": self.skill_network.isChecked(),
                     "shell_tool_enabled": self.shell_tool.isChecked(),
+                    "multimodal_index_enabled": self.multimodal_index.isChecked(),
+                    "max_images_per_document": int(
+                        self.max_images_per_doc.currentText().strip() or "30"
+                    ),
+                    "video_max_frames": int(
+                        self.video_max_frames_combo.currentText().strip() or "12"
+                    ),
                     "agent_max_steps": agent_steps,
                     "workspace_dir": self.workspace_dir.text(),
                     "knowledge_dir": self.knowledge_dir.text(),

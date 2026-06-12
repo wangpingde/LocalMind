@@ -16,6 +16,8 @@ class ProviderConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     chat_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+    vision_model: str = ""
+    supports_vision: bool | None = None
     temperature: float = 0.7
     max_tokens: int = 4096
 
@@ -37,6 +39,10 @@ class AppSettings(BaseModel):
     tools_enabled: bool = True
     agent_max_steps: int = 8
     auto_confirm_file_write: bool = False
+    multimodal_index_enabled: bool = True
+    max_images_per_document: int = 30
+    video_max_frames: int = 12
+    video_frame_interval_sec: float = 30.0
 
 
 class ConfigManager:

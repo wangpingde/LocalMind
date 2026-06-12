@@ -60,7 +60,7 @@ def update_project(project_id: str, payload: ProjectUpdate):
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str):
     svc = get_services()
-    if not svc.projects.delete_project(project_id):
+    if not svc.projects.delete_project(project_id, indexer=svc.indexer):
         raise HTTPException(404, "项目不存在")
     svc.audit.log("project_deleted", {"project_id": project_id})
     return {"status": "ok"}

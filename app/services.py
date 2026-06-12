@@ -71,7 +71,7 @@ def init_services(workspace: Workspace | None = None) -> AppServices:
         vector_store = LanceDBStore(ws.vector_store_dir)
         audit = AuditLogger(ws)
         model_gateway = ModelGateway(config)
-        rag = RAGEngine(vector_store, sqlite, model_gateway)
+        rag = RAGEngine(vector_store, sqlite, model_gateway, ws.knowledge_dir)
         memory = MemoryManager(sqlite, vector_store, model_gateway)
         skill_loader = SkillLoader(ws.skills_dir, sqlite)
         skill_loader.load_all()
